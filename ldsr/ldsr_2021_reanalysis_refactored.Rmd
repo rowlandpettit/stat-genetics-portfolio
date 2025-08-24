@@ -126,3 +126,14 @@ plot_rg_heatmap <- function(df, rg_col = "rg", p_col = "p", lower = -0.8, upper 
 # References
 - Bulik-Sullivan BK, et al. Nat Genet (2015)
 - LDSC: https://github.com/bulik/ldsc
+
+---
+
+## Results interpretation checklist
+- Munge logs: check SNP count retained; confirm HM3 merge applied.
+- h2 intercepts: near 1 indicates modest confounding; inspect gcov intercept in rg.
+- Annotations: for partitioning, ensure baselineLD matches reference panel and ancestry.
+- Effective N: correct case/control sample sizes for binary traits.
+- Trait definitions: harmonize naming across UKB manifests to avoid mismatches.
+- Multiple testing: adjust across many traits (Bonferroni or FDR).
+- Sensitivity: replicate with/without exclusion of smoking-associated windows to assess mediation.

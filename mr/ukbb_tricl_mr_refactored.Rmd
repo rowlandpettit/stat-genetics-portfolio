@@ -39,11 +39,20 @@ library(stringr)
 - Exposures: OpenGWAS IDs from UKB/consortia (e.g., smoking traits, education, alcohol).
 - Outcomes: TRICL/OncoArray lung cancer subtypes formatted for TwoSampleMR.
 
+### Example OpenGWAS IDs (illustrative)
+- Smoking: `ukb-b-7460` (Pack-years proportion), `ieu-b-4877` (Smoking initiation), `ieu-b-25` (Cigarettes/day)
+- Alcohol: `ieu-b-73` (Drinks/week), `ukb-b-5174` (Beer+Cider)
+- Education/Socioeconomic: `ieu-a-1239` (Years of schooling), `ukb-b-7408` (Household income)
+
 ```{r inputs, eval=FALSE}
 # Example exposure IDs (replace as needed)
 exposure_ids <- c(
   "ukb-b-7460",  # Pack years as proportion of lifespan
-  "ieu-b-4877"   # Smoking initiation (GSCAN)
+  "ieu-b-4877",  # Smoking initiation (GSCAN)
+  "ieu-b-25",    # Cigarettes per day
+  "ieu-b-73",    # Drinks per week
+  "ieu-a-1239",  # Years of schooling
+  "ukb-b-7408"   # Household income (pre-tax)
 )
 
 # Outcome formatted CSVs (placeholders) created previously with format_data()
@@ -64,6 +73,25 @@ read_outcome <- function(file, label) {
 
 outcomes <- lapply(names(outcome_files), function(k) read_outcome(outcome_files[[k]], k))
 names(outcomes) <- names(outcome_files)
+```
+
+### Dummy TRICL formatted outcome schema (example)
+This is a minimal example of the columns typically produced by `TwoSampleMR::format_data(..., type = "outcome")` for case-control outcomes. Replace with real formatted files.
+
+```{r dummy-schema, eval=FALSE}
+example_outcome <- tibble::tibble(
+  SNP = c("rs1001","rs1002","rs1003"),
+  beta = c(0.05, -0.03, 0.02),            # log(OR)
+  se = c(0.01, 0.015, 0.012),
+  eaf = c(0.42, 0.35, 0.27),               # effect allele frequency
+  effect_allele = c("A","G","T"),
+  other_allele  = c("G","A","C"),
+  pval = c(1e-6, 2e-4, 0.01),
+  ncase = c(30000, 30000, 30000),
+  ncontrol = c(500000, 500000, 500000),
+  outcome = "overall"
+)
+readr::write_csv(example_outcome, "overall_formatted_example.csv")
 ```
 
 # Utilities
@@ -152,4 +180,16 @@ When multiple exposures are jointly modeled (e.g., smoking initiation and educat
 
 # Provenance
 This refactor retains the logic of the original UKB↔TRICL analysis while clarifying structure, adding guard rails, and documenting assumptions. Replace placeholders with your files/IDs and execute with `eval=TRUE`.
+
+---
+
+## Results interpretation checklist
+- Instrument strength: compute approximate R2 and F-stat; avoid weak instruments.
+- Harmonisation: allele alignment; remove ambiguous palindromic SNPs with high MAF.
+- Heterogeneity: Cochran’s Q; investigate outliers if large.
+- Pleiotropy: Egger intercept near 0; consider MR-PRESSO/median for robustness.
+- Directionality: Steiger test supports exposure→outcome.
+- Multiple testing: adjust p-values across traits/outcomes.
+- Sample overlap: note potential bias in two-sample MR; prefer minimal overlap.
+- Ancestry matching: exposures and outcomes from comparable ancestries.
 
