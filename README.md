@@ -41,3 +41,39 @@ This portfolio highlights two summary-statistics methods I used during my PhD wo
 - LDSC software: `https://github.com/bulik/ldsc`
 - TwoSampleMR: `https://github.com/MRCIEU/TwoSampleMR`
 
+---
+
+## Who / What / When / Where / Why
+- **Who**: Statistical genetics work performed by Rowland Pettit during PhD research and collaborations.
+- **What**: LDSC and MR pipelines for heritability, genetic correlation, and causal inference from GWAS summary statistics.
+- **When**: PhD period and subsequent applied projects; methods remain current and widely used.
+- **Where**: Analyses executed on Linux/macOS with R and Python; LDSC via Python; MR via R.
+- **Why**: Quantify polygenic architecture and assess causal hypotheses while avoiding individual-level data requirements.
+
+## Repository Guide
+```
+stat-genetics-portfolio/
+├── ldsr/
+│   ├── LDSC_workflow.Rmd              # End-to-end LDSC workflow (commands + theory)
+│   └── ldsr_2021_reanalysis.Rmd       # Example re-analysis outline (no data)
+├── mr/
+│   ├── TwoSampleMR_pipeline.R         # Robust two-sample MR pipeline (IDs or files)
+│   └── simulated_mr.R                 # Synthetic DGP to illustrate estimators
+├── setup.R                            # Install R package dependencies
+├── LICENSE
+├── .gitignore
+└── README.md
+```
+
+## Reproducible Setup
+```r
+# From repository root
+source("setup.R")
+```
+- TwoSampleMR may use IEU OpenGWAS; set token if you have one: `Sys.setenv(IEU_OPENAPI_TOKEN = "<token>")`.
+- For LDSC, install Python env and obtain LD reference (1KG EUR) from Broad.
+
+## Notes on Data
+- This repo includes no individual-level or proprietary data.
+- Use public GWAS summary stats and LD references; cite sources appropriately.
+

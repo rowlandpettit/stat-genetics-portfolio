@@ -1,0 +1,118 @@
+---
+title: "LDSC Workflow: Heritability, Genetic Correlation, and Partitioning"
+author: "Rowland Pettit"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+# Overview
+This document outlines a practical linkage disequilibrium score regression (LDSC) workflow using public GWAS summary statistics and LD references. It covers heritability estimation, cross-trait genetic correlation, and partitioned heritability by annotations.
+
+> Note: This notebook is data-free. Replace placeholders with public summary statistics and reference panel paths.
+
+# Theory (Brief)
+- LDSC regresses chi-square statistics (or Z^2) on LD scores to separate polygenic signal from confounding.
+- Expected relationship: \( E[\chi^2] = 1 + N h^2 l_j / M + c \) where \(l_j\) is LD score of SNP j, \(N\) sample size, \(M\) number of SNPs, and \(c\) captures confounding.
+- Cross-trait LDSC regresses product of Z-scores across traits to estimate genetic correlation \(r_g\).
+
+See Bulik-Sullivan et al., 2015 (Nat Genet) and LDSC docs.
+
+# Environment Setup
+We recommend a dedicated Python environment.
+
+```bash
+# One-time (conda recommended)
+conda create -n ldsc python=3.10 -y
+conda activate ldsc
+pip install numpy scipy pandas matplotlib bitarray
+# Clone LDSC
+git clone https://github.com/bulik/ldsc.git
+cd ldsc
+pip install -r requirements.txt
+```
+
+# References (LD Scores & Weights)
+Download 1KG EUR LD scores and weights from Broad.
+
+```bash
+# Example: reference directory (replace with actual path)
+REF=~/refs/ldsc/eur_w_ld_chr
+wget -P $(dirname $REF) https://alkesgroup.broadinstitute.org/LDSCORE/eur_w_ld_chr.tar.bz2
+cd $(dirname $REF) && tar -xjf eur_w_ld_chr.tar.bz2
+```
+
+# Munging Summary Statistics
+LDSC expects a standardized format.
+
+```bash
+# Paths
+LDSC=~/code/ldsc
+SUMSTATS=~/data/gwas/trait1.sumstats.gz   # replace with public file
+
+# Munge to LDSC format
+python $LDSC/munge_sumstats.py \
+  --sumstats $SUMSTATS \
+  --out trait1.munged \
+  --N 100000 \
+  --merge-alleles $REF/w_hm3.snplist
+```
+
+Repeat for a second trait (trait2.munged) if estimating r_g.
+
+# SNP-Heritability (h2)
+```bash
+python $LDSC/ldsc.py \
+  --h2 trait1.munged.sumstats.gz \
+  --ref-ld-chr $REF/ \
+  --w-ld-chr $REF/ \
+  --out trait1_h2
+```
+Outputs include h2 and intercept; inspect trait1_h2.log and trait1_h2.results.
+
+# Genetic Correlation (r_g)
+```bash
+python $LDSC/ldsc.py \
+  --rg trait1.munged.sumstats.gz,trait2.munged.sumstats.gz \
+  --ref-ld-chr $REF/ \
+  --w-ld-chr $REF/ \
+  --out trait1_trait2_rg
+```
+
+# Partitioned Heritability
+Use baseline annotations (e.g., baselineLD v2.2).
+
+```bash
+BASE=~/refs/ldsc/baselineLD_v2.2/baselineLD.
+python $LDSC/ldsc.py \
+  --h2 trait1.munged.sumstats.gz \
+  --ref-ld-chr ${BASE} \
+  --w-ld-chr $REF/ \
+  --overlap-annot \
+  --frqfile-chr $REF/ \
+  --out trait1_partitioned
+```
+
+# Parsing Results in R
+```r
+library(readr)
+library(dplyr)
+
+h2 <- read_delim("trait1_h2.results", delim = "\t")
+rg  <- read_delim("trait1_trait2_rg.log", delim = "\t", col_names = FALSE, comment = "#")
+# Tip: LDSC writes key metrics into the .log; use regex to extract lines matching 'Genetic Correlation'.
+
+part <- read_delim("trait1_partitioned.results", delim = "\t")
+part %>% arrange(desc(Enrichment)) %>% head(10)
+```
+
+# Quality Control Notes
+- Ensure ancestry match between GWAS and reference LD scores.
+- Apply appropriate sample size \(N\) or effective sample size for case-control studies.
+- Check LDSC intercepts to diagnose potential confounding or model misspecification.
+
+# References
+- Bulik-Sullivan BK, et al. Nat Genet (2015).
+- LDSC software: https://github.com/bulik/ldsc
