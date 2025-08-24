@@ -14,5 +14,30 @@ These examples are designed to run with public summary statistics. Replace file 
 - Only references publicly available resources.
 
 ## Background
-Areas: statistical genetics, polygenic architecture, LDSC heritability/rg, and causal inference via MR.
+This portfolio highlights two summary-statistics methods I used during my PhD work:
+
+### Linkage Disequilibrium Score Regression (LDSC)
+- **Goal**: Estimate SNP-heritability and genetic correlation using only GWAS summary statistics and LD patterns.
+- **Idea**: SNPs with higher LD scores tag more variants and therefore aggregate more true signal; regressing GWAS test statistics on LD scores yields unbiased heritability under polygenicity.
+- **Typical outputs**: SNP-heritability (h2), partitioned heritability by functional annotations, and cross-trait genetic correlation (rg).
+- **What I did**: Re-analysis pipelines for complex traits (e.g., lung cancer subtypes; smoking-related traits), QC and munging of public summary stats, and replication across multiple trait panels.
+- **References**: Bulik-Sullivan et al., 2015 (Nat Genet); LDSC software (`https://github.com/bulik/ldsc`).
+
+### Mendelian Randomization (MR)
+- **Goal**: Infer causal effects of an exposure on an outcome using genetic variants as instruments.
+- **Assumptions**: Relevance, independence, and exclusion restriction (no horizontal pleiotropy affecting the outcome except via the exposure).
+- **Common estimators**: IVW, MR-Egger, weighted median; sensitivity analyses include heterogeneity tests, leave-one-out, and MR-PRESSO (when available).
+- **What I did**: Two-sample MR using public instruments for exposures (e.g., smoking traits) and disease outcomes (e.g., lung cancer subtypes), plus robustness checks and multiple-testing control.
+- **References**: Davey Smith & Hemani, 2014 (Hum Mol Genet); MR-Base / TwoSampleMR (`https://github.com/MRCIEU/TwoSampleMR`).
+
+## How to use these examples
+- The code is purposefully data-free. To reproduce, substitute paths with public GWAS summary statistics and LD references (e.g., 1000 Genomes EUR LD scores from `https://alkesgroup.broadinstitute.org/ldsc/`).
+- For MR, obtain instruments (exposure-associated SNPs) and outcome summary stats from public resources (e.g., GWAS Catalog) and load via TwoSampleMR where possible.
+- All analyses should be run with appropriate QC, ancestry matching, and multiple-testing adjustments.
+
+## References
+- Bulik-Sullivan BK, et al. “LD score regression distinguishes confounding from polygenicity in genome-wide association studies.” Nat Genet (2015).
+- Davey Smith G, Hemani G. “Mendelian randomization: genetic anchors for causal inference in epidemiological studies.” Hum Mol Genet (2014).
+- LDSC software: `https://github.com/bulik/ldsc`
+- TwoSampleMR: `https://github.com/MRCIEU/TwoSampleMR`
 
