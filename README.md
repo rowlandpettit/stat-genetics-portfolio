@@ -3,8 +3,11 @@
 Curated excerpts from PhD work: linkage disequilibrium score regression (LDSR) and Mendelian randomization (MR). Code is illustrative and data-free.
 
 ## Contents
-- ldsr/ldsr_2021_reanalysis.Rmd — reproducible analysis outline for LDSR re-analysis (no data)
-- mr/Conventional_MR.R — minimal MR workflow example using public packages
+- ldsr/LDSC_workflow.Rmd — end-to-end LDSC workflow (theory + commands + QC)
+- ldsr/ldsr_2021_reanalysis_refactored.Rmd — refactored LDSR re-analysis notebook
+- mr/ukbb_tricl_mr_refactored.Rmd — refactored UKB↔TRICL MR workflow (full diagnostics)
+- mr/TwoSampleMR_pipeline.R — robust MR pipeline (IDs or local files)
+- mr/simulated_mr.R — synthetic MR to illustrate estimators
 
 ## Reproducibility
 These examples are designed to run with public summary statistics. Replace file paths with public URLs or local files you control. No proprietary or individual-level data are included.
@@ -14,21 +17,32 @@ These examples are designed to run with public summary statistics. Replace file 
 - Only references publicly available resources.
 
 ## Background
-This portfolio highlights two summary-statistics methods I used during my PhD work:
+This portfolio condenses two core summary-statistics frameworks I applied during my PhD: LDSC for polygenic architecture and MR for causal inference. I’ve aimed for dense but precise explanations so a technical reader can assess both capability and judgment.
 
 ### Linkage Disequilibrium Score Regression (LDSC)
-- **Goal**: Estimate SNP-heritability and genetic correlation using only GWAS summary statistics and LD patterns.
-- **Idea**: SNPs with higher LD scores tag more variants and therefore aggregate more true signal; regressing GWAS test statistics on LD scores yields unbiased heritability under polygenicity.
-- **Typical outputs**: SNP-heritability (h2), partitioned heritability by functional annotations, and cross-trait genetic correlation (rg).
-- **What I did**: Re-analysis pipelines for complex traits (e.g., lung cancer subtypes; smoking-related traits), QC and munging of public summary stats, and replication across multiple trait panels.
-- **References**: Bulik-Sullivan et al., 2015 (Nat Genet); LDSC software (`https://github.com/bulik/ldsc`).
+- **Problem addressed**: Differentiate true polygenic signal from confounding (e.g., cryptic relatedness, population structure) and summarize architecture without individual-level data.
+- **LD score**: For SNP j, the LD score is \(l_j = \sum_k r_{jk}^2\) (within a window). Under polygenicity, SNPs with larger \(l_j\) tag more causal sites and have larger expected statistics.
+- **Model**: For GWAS sample size N and M SNPs,
+  \[ E[\chi_j^2] = a + \frac{N h^2}{M} l_j, \]
+  where \(h^2\) is SNP-heritability and intercept \(a\) captures confounding and model misspecification. Weighted regression of \(\chi^2\) on \(l_j\) yields \(\hat h^2\) and \(\hat a\).
+- **Genetic correlation (rg)**: For two traits with Z-scores \(z_{1j}, z_{2j}\),
+  \[ E[z_{1j} z_{2j}] = c + \frac{\sqrt{N_1 N_2}\, r_g\, h_1 h_2}{M} l_j. \]
+  The slope gives \(r_g\) (block jackknife for SEs) while \(c\) diagnoses cross-trait confounding.
+- **Partitioned heritability**: Regress on annotation-specific LD scores to estimate enrichment in functional categories; enrichment = proportion of \(h^2\) divided by proportion of SNPs.
+- **Key choices**: ancestry-matched reference LD (e.g., 1KG EUR), MAF filters, well-imputed SNP sets (HM3), effective N for case-control, and careful interpretation of intercepts.
+- **What I built**: End-to-end pipelines to munge public sumstats, run h2/rg/partitioning, exclude ±500kb around smoking loci (sensitivity to mediation), and parse/visualize results reproducibly.
 
 ### Mendelian Randomization (MR)
-- **Goal**: Infer causal effects of an exposure on an outcome using genetic variants as instruments.
-- **Assumptions**: Relevance, independence, and exclusion restriction (no horizontal pleiotropy affecting the outcome except via the exposure).
-- **Common estimators**: IVW, MR-Egger, weighted median; sensitivity analyses include heterogeneity tests, leave-one-out, and MR-PRESSO (when available).
-- **What I did**: Two-sample MR using public instruments for exposures (e.g., smoking traits) and disease outcomes (e.g., lung cancer subtypes), plus robustness checks and multiple-testing control.
-- **References**: Davey Smith & Hemani, 2014 (Hum Mol Genet); MR-Base / TwoSampleMR (`https://github.com/MRCIEU/TwoSampleMR`).
+- **Problem addressed**: Estimate causal effect of exposure X on outcome Y using genetic instruments G, minimizing confounding/reverse causation.
+- **Assumptions**: (i) Relevance (G→X), (ii) Independence (G ⟂ confounders), (iii) Exclusion (G affects Y only via X). Violations (horizontal pleiotropy) are explicitly tested/handled.
+- **Estimators**:
+  - IVW (no-intercept weighted regression): consistent if horizontal pleiotropy is balanced and instruments are strong. A common parametrization is weighted regression of \(\beta_{Yj}\) on \(\beta_{Xj}\) with weights \(w_j = 1/\text{SE}(\beta_{Yj})^2\).
+  - MR-Egger: includes intercept \(\alpha\); \(\alpha\)≈0 suggests no directional pleiotropy; slope gives causal effect but with lower power.
+  - Weighted median: consistent if ≥50% of weight comes from valid instruments.
+  - Robust extensions: MR-PRESSO (outlier removal), RAPS (overdispersion-robust), contamination-mixture.
+- **Diagnostics**: clumping (LD), harmonization (allele alignment, palindromics), instrument strength (R²/F-stat), Cochran’s Q (heterogeneity), Egger intercept (pleiotropy), Steiger directionality (X→Y), leave-one-out and funnel plots.
+- **Practical caveats**: winner’s curse in discovery GWAS, sample overlap bias in two-sample MR, ancestry mismatch, and multiple testing across traits.
+- **What I built**: Scalable univariate and multivariable MR over UKB exposures and TRICL/OncoArray lung cancer outcomes, with full robustness suite and artifacted outputs (tables/plots) for auditability.
 
 ## How to use these examples
 - The code is purposefully data-free. To reproduce, substitute paths with public GWAS summary statistics and LD references (e.g., 1000 Genomes EUR LD scores from `https://alkesgroup.broadinstitute.org/ldsc/`).
@@ -54,11 +68,12 @@ This portfolio highlights two summary-statistics methods I used during my PhD wo
 ```
 stat-genetics-portfolio/
 ├── ldsr/
-│   ├── LDSC_workflow.Rmd              # End-to-end LDSC workflow (commands + theory)
-│   └── ldsr_2021_reanalysis.Rmd       # Example re-analysis outline (no data)
+│   ├── LDSC_workflow.Rmd                      # End-to-end LDSC workflow
+│   └── ldsr_2021_reanalysis_refactored.Rmd    # Refactored re-analysis
 ├── mr/
-│   ├── TwoSampleMR_pipeline.R         # Robust two-sample MR pipeline (IDs or files)
-│   └── simulated_mr.R                 # Synthetic DGP to illustrate estimators
+│   ├── ukbb_tricl_mr_refactored.Rmd            # Full MR workflow (UKB↔TRICL)
+│   ├── TwoSampleMR_pipeline.R                  # Robust two-sample MR pipeline
+│   └── simulated_mr.R                           # Synthetic MR example
 ├── setup.R                            # Install R package dependencies
 ├── LICENSE
 ├── .gitignore
