@@ -1,0 +1,155 @@
+---
+title: "UKB ↔ TRICL Mendelian Randomization (Refactored)"
+author: "Rowland Pettit"
+date: "2021-03-16 (refactored)"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+---
+
+# Purpose
+This notebook documents a two-sample Mendelian randomization (MR) workflow linking UK Biobank (UKB) exposures to TRICL/OncoArray lung cancer outcomes. It is refactored for readability, reproducibility, and clarity. All data paths are placeholders; replace with your files or public resources.
+
+# Setup
+```{r setup, message=FALSE}
+# Core packages
+if (!requireNamespace("TwoSampleMR", quietly = TRUE)) install.packages("TwoSampleMR")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+if (!requireNamespace("readr", quietly = TRUE)) install.packages("readr")
+if (!requireNamespace("stringr", quietly = TRUE)) install.packages("stringr")
+
+library(TwoSampleMR)
+library(dplyr)
+library(readr)
+library(stringr)
+
+# Optional: MR-PRESSO, RAPS, MVMR tools (commented by default)
+# if (!requireNamespace("MRPRESSO", quietly = TRUE)) remotes::install_github("rondolab/MR-PRESSO")
+# if (!requireNamespace("mr.raps", quietly = TRUE)) install.packages("mr.raps")
+# if (!requireNamespace("MVMR", quietly = TRUE)) remotes::install_github("WSpiller/MVMR")
+
+# Optional OpenGWAS token for higher throughput
+# Sys.setenv(IEU_OPENAPI_TOKEN = "<YOUR_TOKEN>")
+```
+
+# Inputs
+- Exposures: OpenGWAS IDs from UKB/consortia (e.g., smoking traits, education, alcohol).
+- Outcomes: TRICL/OncoArray lung cancer subtypes formatted for TwoSampleMR.
+
+```{r inputs, eval=FALSE}
+# Example exposure IDs (replace as needed)
+exposure_ids <- c(
+  "ukb-b-7460",  # Pack years as proportion of lifespan
+  "ieu-b-4877"   # Smoking initiation (GSCAN)
+)
+
+# Outcome formatted CSVs (placeholders) created previously with format_data()
+outcome_files <- list(
+  overall = "path/to/tricl_oncoarray_formatted/overall_formatted.csv",
+  adeno   = "path/to/tricl_oncoarray_formatted/adeno_formatted.csv",
+  small   = "path/to/tricl_oncoarray_formatted/small_formatted.csv",
+  squam   = "path/to/tricl_oncoarray_formatted/squam_formatted.csv"
+)
+
+read_outcome <- function(file, label) {
+  df <- readr::read_csv(file, show_col_types = FALSE)
+  # Ensure columns match TwoSampleMR::read_outcome_data expectations
+  # If you used TwoSampleMR::format_data(..., type="outcome"), it should already be compatible
+  df$outcome <- label
+  df
+}
+
+outcomes <- lapply(names(outcome_files), function(k) read_outcome(outcome_files[[k]], k))
+names(outcomes) <- names(outcome_files)
+```
+
+# Utilities
+```{r utils}
+run_univariate_mr <- function(exposure_id, outcome_df, harmonise_action = 2) {
+  message("Exposure: ", exposure_id, " | Outcome: ", unique(outcome_df$outcome))
+  exp <- TwoSampleMR::extract_instruments(outcomes = exposure_id)
+  if (nrow(exp) == 0) return(NULL)
+  dat <- TwoSampleMR::harmonise_data(exp, outcome_df, action = harmonise_action)
+
+  # Core estimators
+  core_methods <- c("mr_ivw", "mr_egger_regression", "mr_weighted_median")
+  mr_res <- TwoSampleMR::mr(dat, method_list = core_methods)
+
+  # Diagnostics
+  het   <- TwoSampleMR::mr_heterogeneity(dat, method_list = core_methods)
+  pleio <- TwoSampleMR::mr_pleiotropy_test(dat)
+  dirn  <- tryCatch(TwoSampleMR::directionality_test(dat), error = function(e) NULL)
+
+  list(data = dat, mr = mr_res, het = het, pleio = pleio, directionality = dirn)
+}
+```
+
+# Analysis: IVW / Egger / Weighted Median
+```{r analysis, eval=FALSE}
+results <- list()
+for (eid in exposure_ids) {
+  for (ok in names(outcomes)) {
+    res <- tryCatch(run_univariate_mr(eid, outcomes[[ok]]), error = function(e) NULL)
+    if (!is.null(res)) {
+      key <- paste(eid, ok, sep = "::")
+      results[[key]] <- res
+    }
+  }
+}
+
+# Tidy and combine
+mr_table <- dplyr::bind_rows(
+  lapply(names(results), function(k) {
+    parts <- strsplit(k, "::")[[1]]
+    exposure_id <- parts[1]; outcome <- parts[2]
+    out <- results[[k]]$mr
+    if (is.null(out)) return(NULL)
+    out$id.exposure <- exposure_id
+    out$outcome <- outcome
+    out
+  }),
+  .id = NULL
+)
+
+readr::write_csv(mr_table, "mr_outputs/ukbb_tricl_univariate_mr.csv")
+```
+
+# Robustness (optional)
+- Heterogeneity: Cochran’s Q (see `mr_heterogeneity`).
+- Pleiotropy: Egger intercept test (see `mr_pleiotropy_test`).
+- Directionality: Steiger test (see `directionality_test`).
+- Additional estimators: MR-PRESSO, RAPS, contamination mixture (shown below as commented code).
+
+```{r optional_robustness, eval=FALSE}
+# Example MR-PRESSO (requires MRPRESSO and R.utils if using timeouts)
+# presso <- MRPRESSO::mr_presso(BetaOutcome = "beta.outcome", BetaExposure = "beta.exposure",
+#                               SdOutcome = "se.outcome", SdExposure = "se.exposure",
+#                               OUTLIERtest = TRUE, DISTORTIONtest = TRUE, data = results[[1]]$data,
+#                               NbDistribution = 1000, SignifThreshold = 0.05)
+
+# Example RAPS
+# raps <- mr.raps::mr.raps.simple(b_exp = dat$beta.exposure, b_out = dat$beta.outcome,
+#                                 se_exp = dat$se.exposure, se_out = dat$se.outcome)
+```
+
+# Multivariable MR (outline)
+When multiple exposures are jointly modeled (e.g., smoking initiation and education), use multivariable MR to adjust for correlated pathways.
+
+```{r mvmr_outline, eval=FALSE}
+# exposures <- mv_extract_exposures(c("ieu-b-4877", "ieu-a-1239"))  # example: smoking + education
+# mvdat <- mv_harmonise_data(exposures, outcomes[["overall"]], harmonise_strictness = 2)
+# mv_ivw_res <- mv_ivw(mvdat, pval_threshold = 5e-8)
+# mv_ivw_res$result
+```
+
+# Interpretation
+- Prefer IVW when heterogeneity and pleiotropy are modest; cross-check with weighted median.
+- Use Egger cautiously (low power, intercept diagnoses pleiotropy).
+- Check Steiger for directionality and SNP strength (F-statistics) where possible.
+
+# Provenance
+This refactor retains the logic of the original UKB↔TRICL analysis while clarifying structure, adding guard rails, and documenting assumptions. Replace placeholders with your files/IDs and execute with `eval=TRUE`.
+

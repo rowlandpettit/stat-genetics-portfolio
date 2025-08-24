@@ -1,0 +1,128 @@
+---
+title: "LDSR 2021 Re-analysis (Refactored)"
+author: "Rowland Pettit"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+# Purpose
+Refactor of the 2021 LDSR re-analysis to make intent, steps, and decisions explicit. This version removes local paths, adds commentary, and uses placeholders pointing to public resources.
+
+# Background
+- Remove ±500kb windows around smoking-associated SNPs to assess whether lung cancer correlations persist independently of smoking loci.
+- Use LDSC to estimate h2 and rg with UKB traits; compare filtered vs. unfiltered results.
+
+# Setup
+```{r setup, message=FALSE}
+library(dplyr)
+library(readr)
+library(stringr)
+library(ggplot2)
+```
+
+# Inputs (placeholders)
+```{r inputs, eval=FALSE}
+# Smoking SNPs (from Liu 2019 NG; provide a CSV of significant loci)
+smoking_snps <- readr::read_csv("path/to/Liu_2019_NG_smoking_snps.csv")
+excluded_regions <- smoking_snps %>% transmute(CHR = Chr,
+                                               Start = Pos - 500000,
+                                               End   = Pos + 500000)
+
+# TRICL/OncoArray summary stats (raw), one file per outcome
+tricl_files <- list(
+  overall = "path/to/tricl/overall.txt",
+  adeno   = "path/to/tricl/adeno.txt",
+  small   = "path/to/tricl/small.txt",
+  squam   = "path/to/tricl/squam.txt",
+  ever    = "path/to/tricl/ever.txt",
+  never   = "path/to/tricl/never.txt"
+)
+```
+
+# Helper: exclude windows
+```{r exclude-helper}
+exclude_windows <- function(stat, excluded_regions) {
+  stopifnot(all(c("CHR", "position") %in% names(stat)))
+  stopifnot(all(c("CHR", "Start", "End") %in% names(excluded_regions)))
+  idx <- logical(nrow(stat))
+  for (j in seq_len(nrow(excluded_regions))) {
+    r <- excluded_regions[j, ]
+    idx <- idx | (stat$CHR == r$CHR & stat$position >= r$Start & stat$position <= r$End)
+  }
+  stat[!idx, ]
+}
+```
+
+# Process TRICL outcomes (filter vs. unfiltered)
+```{r process-tricl, eval=FALSE}
+process_tricl <- function(path, out_filtered) {
+  cols <- c("chr:pos","rs_number","CHR","position","reference_allele","effect_allele",
+            "EAF","OR_fixed","StdError_fixed","Pvalue_fixed","L95_fixed","U95_fixed",
+            "phete(Q)_Pvalue","I2","N_study","N_Cases","N_Controls","Effects",
+            "OR_random","StdError_random","Pvalue_random","L95_random","U95_random")
+  x <- readr::read_tsv(path, col_names = FALSE, show_col_types = FALSE, progress = FALSE, skip = 1)
+  names(x) <- cols
+  if (out_filtered) x <- exclude_windows(x, excluded_regions)
+  x
+}
+
+tricl <- lapply(names(tricl_files), function(k) list(
+  raw = process_tricl(tricl_files[[k]], FALSE),
+  fil = process_tricl(tricl_files[[k]], TRUE)
+))
+names(tricl) <- names(tricl_files)
+```
+
+# LDSC: Munge and run (command templates)
+```{r ldsc-templates}
+ldsc_dir <- "~/code/ldsc"              # where ldsc.py lives
+ref_dir  <- "~/refs/ldsc/eur_w_ld_chr" # 1KG EUR LD scores
+
+munge_cmd <- function(sumstats, outstem) sprintf(
+  "python %s/munge_sumstats.py --sumstats %s --out %s --N %d --merge-alleles %s/w_hm3.snplist",
+  ldsc_dir, sumstats, outstem, 100000, ref_dir
+)
+
+h2_cmd <- function(munged, outstem) sprintf(
+  "python %s/ldsc.py --h2 %s --ref-ld-chr %s/ --w-ld-chr %s/ --out %s",
+  ldsc_dir, munged, ref_dir, ref_dir, outstem
+)
+
+rg_cmd <- function(munged1, munged2, outstem) sprintf(
+  "python %s/ldsc.py --rg %s,%s --ref-ld-chr %s/ --w-ld-chr %s/ --out %s",
+  ldsc_dir, munged1, munged2, ref_dir, ref_dir, outstem
+)
+```
+
+# Parse LDSC outputs (example)
+```{r parse-ldsc, eval=FALSE}
+# Example: read h2 results and RG logs, then create comparison tables
+h2 <- readr::read_tsv("trait1_h2.results")
+# rg often appears in logs; parse by regex or use helper if available
+```
+
+# Visualization templates
+```{r viz-templates}
+plot_rg_heatmap <- function(df, rg_col = "rg", p_col = "p", lower = -0.8, upper = 0.8) {
+  df$neglog10 <- -log10(as.numeric(df[[p_col]]))
+  ggplot(df, aes(x = Outcome, y = Trait, fill = !!rlang::sym(rg_col))) +
+    geom_tile() +
+    geom_text(aes(label = paste0(round(!!rlang::sym(rg_col), 2), ifelse(df$neglog10 > 5, " *", ""))), size = 3) +
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limits = c(lower, upper)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+    labs(x = "Outcomes", y = "Traits", fill = "rg")
+}
+```
+
+# Notes
+- Ensure ancestry-matched LD reference and GWAS.
+- Use effective N for case-control.
+- Intercepts near 1 suggest minimal confounding; large deviations warrant caution.
+
+# References
+- Bulik-Sullivan BK, et al. Nat Genet (2015)
+- LDSC: https://github.com/bulik/ldsc
