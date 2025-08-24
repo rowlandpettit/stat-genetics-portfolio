@@ -133,3 +133,10 @@ write_csv(comparison, "ldsc_partitioned_enrichment_comparison.csv")
 # References
 - Bulik-Sullivan BK, et al. Nat Genet (2015).
 - LDSC software: https://github.com/bulik/ldsc
+
+---
+
+## Computing environment
+```r
+sessionInfo()
+```

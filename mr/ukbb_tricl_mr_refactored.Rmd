@@ -293,3 +293,10 @@ This refactor retains the logic of the original UKB↔TRICL analysis while clari
 - Sample overlap: note potential bias in two-sample MR; prefer minimal overlap.
 - Ancestry matching: exposures and outcomes from comparable ancestries.
 
+---
+
+## Computing environment
+```{r session-info}
+sessionInfo()
+```
+
