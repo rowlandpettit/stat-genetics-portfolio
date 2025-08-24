@@ -1,0 +1,26 @@
+# Large and sensitive genetics files (never commit)
+*.vcf
+*.vcf.gz
+*.bgen
+*.bed
+*.bim
+*.fam
+*.bam
+*.cram
+*.bcf
+*.sumstats
+*.sumstats.gz
+*.mt
+*.ht
+*.idx
+*.tbi
+*.log
+
+# R and RStudio
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+.DS_Store
