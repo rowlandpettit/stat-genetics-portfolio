@@ -20,19 +20,30 @@ if (!requireNamespace("TwoSampleMR", quietly = TRUE)) install.packages("TwoSampl
 if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
 if (!requireNamespace("readr", quietly = TRUE)) install.packages("readr")
 if (!requireNamespace("stringr", quietly = TRUE)) install.packages("stringr")
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("tibble", quietly = TRUE)) install.packages("tibble")
 
 library(TwoSampleMR)
 library(dplyr)
 library(readr)
 library(stringr)
+library(ggplot2)
+library(tibble)
 
-# Optional: MR-PRESSO, RAPS, MVMR tools (commented by default)
+# Optional: PRESSO, RAPS, contamination mixture, MVMR
 # if (!requireNamespace("MRPRESSO", quietly = TRUE)) remotes::install_github("rondolab/MR-PRESSO")
 # if (!requireNamespace("mr.raps", quietly = TRUE)) install.packages("mr.raps")
+# if (!requireNamespace("MendelianRandomization", quietly = TRUE)) install.packages("MendelianRandomization")
 # if (!requireNamespace("MVMR", quietly = TRUE)) remotes::install_github("WSpiller/MVMR")
 
 # Optional OpenGWAS token for higher throughput
 # Sys.setenv(IEU_OPENAPI_TOKEN = "<YOUR_TOKEN>")
+
+# Reproducibility toggles
+RUN_OPEN_GWAS <- FALSE   # set TRUE to fetch from OpenGWAS directly
+RUN_PLOTS     <- TRUE
+OUTDIR        <- "mr_outputs"
+dir.create(OUTDIR, showWarnings = FALSE, recursive = TRUE)
 ```
 
 # Inputs
@@ -113,6 +124,65 @@ run_univariate_mr <- function(exposure_id, outcome_df, harmonise_action = 2) {
 
   list(data = dat, mr = mr_res, het = het, pleio = pleio, directionality = dirn)
 }
+
+# Approximate R2 and F-statistics per SNP (case-control needs effective N if available)
+compute_strength <- function(dat) {
+  if (!all(c("beta.exposure","se.exposure","eaf.exposure","samplesize.exposure") %in% names(dat))) return(dat)
+  dat$R2 <- with(dat, 2 * (beta.exposure^2) * eaf.exposure * (1 - eaf.exposure) /
+                       (2 * (beta.exposure^2) * eaf.exposure * (1 - eaf.exposure) +
+                        2 * (se.exposure^2) * samplesize.exposure * eaf.exposure * (1 - eaf.exposure)))
+  dat$F_statistic <- with(dat, R2 * (samplesize.exposure - 2) / ((1 - R2)))
+  dat
+}
+
+# Optional robust estimators (guarded)
+run_optional_robust <- function(dat) {
+  out_list <- list()
+  if (requireNamespace("MRPRESSO", quietly = TRUE)) {
+    out_list$presso <- tryCatch({
+      MRPRESSO::mr_presso(BetaOutcome = "beta.outcome", BetaExposure = "beta.exposure",
+                          SdOutcome = "se.outcome", SdExposure = "se.exposure",
+                          OUTLIERtest = TRUE, DISTORTIONtest = TRUE, data = dat,
+                          NbDistribution = 1000, SignifThreshold = 0.05)
+    }, error = function(e) NULL)
+  }
+  if (requireNamespace("mr.raps", quietly = TRUE)) {
+    out_list$raps <- tryCatch({
+      mr.raps::mr.raps.simple(b_exp = dat$beta.exposure, b_out = dat$beta.outcome,
+                              se_exp = dat$se.exposure, se_out = dat$se.outcome)
+    }, error = function(e) NULL)
+  }
+  if (requireNamespace("MendelianRandomization", quietly = TRUE)) {
+    out_list$conmix <- tryCatch({
+      MendelianRandomization::mr_conmix(
+        MendelianRandomization::mr_input(bx = dat$beta.exposure, bxse = dat$se.exposure,
+                                         by = dat$beta.outcome, byse = dat$se.outcome)
+      )
+    }, error = function(e) NULL)
+  }
+  out_list
+}
+
+# Plot helpers
+plot_all <- function(mr_res, dat, outdir, tag) {
+  if (!RUN_PLOTS) return(invisible(NULL))
+  try({
+    sc <- TwoSampleMR::mr_scatter_plot(mr_res, dat)[[1]]
+    ggsave(file.path(outdir, paste0("scatter_", tag, ".pdf")), sc, width = 6, height = 5)
+  }, silent = TRUE)
+  try({
+    sng <- TwoSampleMR::mr_singlesnp(dat)
+    fp <- TwoSampleMR::mr_forest_plot(sng)[[1]]
+    ggsave(file.path(outdir, paste0("forest_", tag, ".pdf")), fp, width = 7, height = 8)
+    fn <- TwoSampleMR::mr_funnel_plot(sng)[[1]]
+    ggsave(file.path(outdir, paste0("funnel_", tag, ".pdf")), fn, width = 6, height = 5)
+  }, silent = TRUE)
+  try({
+    loo <- TwoSampleMR::mr_leaveoneout(dat)
+    lop <- TwoSampleMR::mr_leaveoneout_plot(loo)[[1]]
+    ggsave(file.path(outdir, paste0("leaveoneout_", tag, ".pdf")), lop, width = 7, height = 6)
+  }, silent = TRUE)
+}
 ```
 
 # Analysis: IVW / Egger / Weighted Median
@@ -122,27 +192,57 @@ for (eid in exposure_ids) {
   for (ok in names(outcomes)) {
     res <- tryCatch(run_univariate_mr(eid, outcomes[[ok]]), error = function(e) NULL)
     if (!is.null(res)) {
+      # Strength and optional robust methods
+      res$data <- compute_strength(res$data)
+      res$robust <- run_optional_robust(res$data)
+
       key <- paste(eid, ok, sep = "::")
       results[[key]] <- res
+
+      # Persist per-comparison outputs
+      tag <- paste0(gsub("\\/|:", "_", eid), "__", ok)
+      outdir <- file.path(OUTDIR, tag)
+      dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+      write_csv(res$data, file.path(outdir, "harmonised.csv"))
+      write_csv(res$mr,   file.path(outdir, "mr_core.csv"))
+      write_csv(res$het,  file.path(outdir, "heterogeneity.csv"))
+      write_csv(res$pleio,file.path(outdir, "egger_intercept.csv"))
+      if (!is.null(res$directionality)) write_csv(res$directionality, file.path(outdir, "directionality.csv"))
+
+      # Optional robust outputs
+      if (!is.null(res$robust$raps)) {
+        raps_df <- tibble(method = "mr_raps_simple",
+                          beta = res$robust$raps$beta.hat,
+                          se = res$robust$raps$beta.se,
+                          pval = res$robust$raps$beta.p.value)
+        write_csv(raps_df, file.path(outdir, "mr_raps.csv"))
+      }
+      if (!is.null(res$robust$conmix)) {
+        cm <- res$robust$conmix
+        cm_df <- tibble(method = "mr_conmix",
+                        beta = cm@Estimate[1],
+                        se = (cm@CIUpper[1] - cm@CILower[1]) / 3.92,
+                        pval = cm@Pvalue[1])
+        write_csv(cm_df, file.path(outdir, "mr_conmix.csv"))
+      }
+
+      plot_all(res$mr, res$data, outdir, tag)
     }
   }
 }
 
-# Tidy and combine
-mr_table <- dplyr::bind_rows(
-  lapply(names(results), function(k) {
-    parts <- strsplit(k, "::")[[1]]
-    exposure_id <- parts[1]; outcome <- parts[2]
-    out <- results[[k]]$mr
-    if (is.null(out)) return(NULL)
-    out$id.exposure <- exposure_id
-    out$outcome <- outcome
-    out
-  }),
-  .id = NULL
-)
+# Tidy and combine core MR results
+mr_table <- bind_rows(lapply(names(results), function(k) {
+  parts <- strsplit(k, "::")[[1]]
+  exposure_id <- parts[1]; outcome <- parts[2]
+  out <- results[[k]]$mr
+  if (is.null(out)) return(NULL)
+  out$id.exposure <- exposure_id
+  out$outcome <- outcome
+  out
+}))
 
-readr::write_csv(mr_table, "mr_outputs/ukbb_tricl_univariate_mr.csv")
+write_csv(mr_table, file.path(OUTDIR, "ukbb_tricl_univariate_mr.csv"))
 ```
 
 # Robustness (optional)

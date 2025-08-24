@@ -82,17 +82,29 @@ python $LDSC/ldsc.py \
 ```
 
 # Partitioned Heritability
-Use baseline annotations (e.g., baselineLD v2.2).
+Use baseline annotations (e.g., baselineLD v2.2). Create filtered vs. unfiltered sumstats to exclude ±500kb around smoking loci, then compare enrichments.
 
 ```bash
+echo "Using baselineLD v2.2"
 BASE=~/refs/ldsc/baselineLD_v2.2/baselineLD.
+
+# Unfiltered
 python $LDSC/ldsc.py \
   --h2 trait1.munged.sumstats.gz \
   --ref-ld-chr ${BASE} \
   --w-ld-chr $REF/ \
   --overlap-annot \
   --frqfile-chr $REF/ \
-  --out trait1_partitioned
+  --out trait1_partitioned_unfiltered
+
+# Filtered (after removing smoking windows → trait1_filtered.munged.sumstats.gz)
+python $LDSC/ldsc.py \
+  --h2 trait1_filtered.munged.sumstats.gz \
+  --ref-ld-chr ${BASE} \
+  --w-ld-chr $REF/ \
+  --overlap-annot \
+  --frqfile-chr $REF/ \
+  --out trait1_partitioned_filtered
 ```
 
 # Parsing Results in R
@@ -104,8 +116,13 @@ h2 <- read_delim("trait1_h2.results", delim = "\t")
 rg  <- read_delim("trait1_trait2_rg.log", delim = "\t", col_names = FALSE, comment = "#")
 # Tip: LDSC writes key metrics into the .log; use regex to extract lines matching 'Genetic Correlation'.
 
-part <- read_delim("trait1_partitioned.results", delim = "\t")
-part %>% arrange(desc(Enrichment)) %>% head(10)
+part_unf <- read_delim("trait1_partitioned_unfiltered.results", delim = "\t")
+part_fil <- read_delim("trait1_partitioned_filtered.results", delim = "\t")
+comparison <- part_unf %>% select(Category, Enrichment_unf = Enrichment) %>%
+  left_join(part_fil %>% select(Category, Enrichment_fil = Enrichment), by = "Category") %>%
+  mutate(Delta = Enrichment_fil - Enrichment_unf) %>% arrange(desc(abs(Delta)))
+comparison %>% head(10)
+write_csv(comparison, "ldsc_partitioned_enrichment_comparison.csv")
 ```
 
 # Quality Control Notes
